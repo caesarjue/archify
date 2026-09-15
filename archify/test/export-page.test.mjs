@@ -232,6 +232,14 @@ test('full diagram page export works without cards and in the light theme', {
   try {
     const sessionId = await browser.sessionPromise;
     await browser.inspect({ artifactPath: artifact, width: 1600, height: 900 });
+    const theme = await browser.cdp.send('Runtime.evaluate', {
+      expression: `(() => {
+        document.documentElement.setAttribute('data-theme', 'light');
+        return document.documentElement.getAttribute('data-theme');
+      })()`,
+      returnByValue: true,
+    }, sessionId, 30000);
+    assert.equal(theme.result?.value, 'light', 'fixture should export under the light theme');
     const downloaded = await exportPageViaMenu(browser, sessionId, downloadDir);
     const { width } = pngDimensions(fs.readFileSync(downloaded));
     assert.equal(width, 3200, 'card-less export should still render at 2x');
@@ -323,6 +331,26 @@ function readZipEntry(zipPath, entryName) {
   }
   return null;
 }
+
+test('every checked-in rendered viewer with export supports full-page PNG export', () => {
+  const repoRoot = path.resolve(skillRoot, '..');
+  const artifacts = execFileSync('git', ['ls-files', '*.html'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+  }).trim().split('\n').filter(Boolean).filter((file) => file !== 'viewer/template.source.html');
+
+  const missing = artifacts.flatMap((file) => {
+    const html = fs.readFileSync(path.join(repoRoot, file), 'utf8');
+    if (!html.includes('id="btn-export"')) return [];
+    const absent = [
+      !html.includes('data-format="page"') && 'page export menu item',
+      !html.includes('renderPageExport') && 'page export renderer',
+    ].filter(Boolean);
+    return absent.length ? [`${file}: ${absent.join(', ')}`] : [];
+  });
+
+  assert.deepEqual(missing, [], `stale rendered viewers:\n${missing.join('\n')}`);
+});
 
 test('the packaged archify.zip template matches the working tree export implementation', () => {
   const zipPath = path.join(skillRoot, '..', 'archify.zip');
